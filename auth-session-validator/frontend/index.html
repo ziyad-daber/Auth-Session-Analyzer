@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth and Session Analyzer | Premium Lab</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+          --bg-dark: #0b0e11;
+          --bg-dark-purple: #1a152e;
+          --accent-purple: #a29bfe;
+          --accent-purple-glow: rgba(162, 155, 254, 0.4);
+          --mid-white: #f8f9fa;
+          --card-bg: #15191d;
+          --border: #2d3436;
+          --danger: #ef4444;
+          --accent-green: #2ecc71;
+          --text-main: #e1e6ed;
+          --text-dim: #94a3b8;
+          --accent-blue: #3498db;
+          --warning: #fcc419;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Outfit', sans-serif; background: var(--bg-dark); color: var(--text-main); height: 100vh; overflow: hidden; }
+        .app-container { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .view-panel { flex: 1; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+        .hidden { display: none !important; }
+
+        /* ── HEADER ── */
+        header { padding: 12px 25px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); background: var(--bg-dark); flex-shrink: 0; z-index: 100; }
+        .brand-logo { font-weight: 900; font-size: 1.2rem; color: white; cursor: pointer; }
+        .brand-logo span { color: var(--accent-purple); }
+        
+        nav { display: flex; gap: 15px; }
+        .nav-item { cursor: pointer; opacity: 0.5; font-weight: 600; padding: 10px 12px; font-size: 0.85rem; border-bottom: 2px solid transparent; transition: 0.2s; white-space: nowrap; }
+        .nav-item:hover { opacity: 0.8; }
+        .nav-item.active { opacity: 1; color: var(--accent-purple); border-bottom-color: var(--accent-purple); }
+
+        .header-actions { display: flex; align-items: center; gap: 15px; }
+        .score-badge { background: rgba(162,155,254,0.1); color: var(--accent-purple); padding: 5px 12px; border-radius: 6px; font-weight: 800; font-size: 0.75rem; border: 1px solid rgba(162,155,254,0.2); }
+        .btn-new-scan { background: rgba(255,255,255,0.05); color: white; border: 1px solid var(--border); padding: 6px 12px; border-radius: 6px; font-size: 0.7rem; font-weight: 800; cursor: pointer; }
+        .btn-logout { background: transparent; border: none; color: var(--danger); cursor: pointer; font-size: 0.7rem; font-weight: 800; opacity: 0.7; }
+
+        /* ── LANDING / LOGIN ── */
+        .landing-split { display: flex; height: 100vh; width: 100%; }
+        .landing-left { flex: 1.2; background: linear-gradient(135deg, #0b0e11 0%, #1a152e 100%); padding: 60px; display: flex; flex-direction: column; justify-content: center; position: relative; overflow: hidden; }
+        .landing-right { flex: 1; background: var(--mid-white); display: flex; align-items: center; justify-content: center; padding: 40px; color: #1a1a1a; }
+        .auth-card { background: white; width: 100%; max-width: 420px; padding: 40px; border-radius: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.08); }
+        .form-input { width: 100%; padding: 14px; border-radius: 12px; border: 2px solid #e9ecef; background: #f8f9fa; margin-bottom: 12px; font-size: 0.9rem; }
+        .btn-action { width: 100%; padding: 15px; background: var(--bg-dark-purple); color: white; border: none; border-radius: 12px; font-weight: 800; cursor: pointer; }
+
+        /* ── COMMON LAYOUT ── */
+        main { flex: 1; overflow: hidden; background: var(--bg-dark); display: flex; flex-direction: column; }
+        .tab-panel { flex: 1; display: flex; height: 100%; overflow: hidden; }
+        .sidebar { width: 340px; min-width: 340px; background: #111418; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        .content { flex: 1; background: #0b0e11; overflow-y: auto; position: relative; padding: 30px; }
+        
+        /* ── SOURCE AUDIT ── */
+        .code-line { display: block; white-space: pre; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; padding: 0 20px; min-height: 1.5em; }
+        .code-highlight { background: rgba(239, 68, 68, 0.25); border-left: 4px solid #ff4757; color: white; width: 100%; display: inline-block; }
+        .line-number { display: inline-block; width: 35px; opacity: 0.2; user-select: none; border-right: 1px solid var(--border); margin-right: 15px; text-align: right; padding-right: 8px; }
+        .audit-item { padding: 15px 20px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.2s; }
+        .audit-item:hover { background: rgba(255,255,255,0.02); }
+        .audit-item.active { background: rgba(162,155,254,0.08); border-left: 3px solid var(--accent-purple); }
+        .sev-tag { font-size: 0.6rem; font-weight: 900; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; }
+        .sev-high { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .sev-med { background: rgba(252,196,25,0.15); color: var(--warning); }
+        
+        /* ── TERMINAL / LOGS ── */
+        .terminal { background: #050505; border: 1px solid var(--border); border-radius: 12px; padding: 20px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: #d1d1d1; overflow-y: auto; height: 300px; margin-top: 20px; }
+        .term-line { margin-bottom: 5px; border-left: 2px solid transparent; padding-left: 10px; }
+        .line-cmd { border-left-color: var(--accent-purple); color: var(--accent-purple); }
+        .line-err { border-left-color: var(--danger); color: var(--danger); }
+        .line-ok { border-left-color: var(--accent-green); color: var(--accent-green); }
+
+        /* ── ATTACK CARDS ── */
+        .attack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; margin-top: 20px; }
+        .atk-card { background: #1a1a1a; border: 1px solid var(--border); padding: 20px; border-radius: 16px; cursor: pointer; transition: 0.3s; }
+        .atk-card:hover { border-color: var(--accent-purple); transform: translateY(-3px); }
+        .atk-card.active { background: rgba(162,155,254,0.1); border-color: var(--accent-purple); }
+
+        /* ── LIFECYCLE ── */
+        .lifecycle-list { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+        .step-row { display: flex; align-items: center; gap: 20px; background: rgba(255,255,255,0.02); padding: 15px 25px; border-radius: 12px; border: 1px solid var(--border); }
+        .step-num { width: 35px; height: 35px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.9rem; flex-shrink: 0; }
+        .step-status { margin-left: auto; font-size: 0.7rem; font-weight: 900; opacity: 0.5; }
+
+        .spinner { width: 30px; height: 30px; border: 3px solid rgba(255,255,255,0.1); border-radius: 50%; border-top-color: var(--accent-purple); animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── TRAFFIC INTERCEPTOR PREMIUM ── */
+        .traffic-card { background: #15191d; border: 1px solid var(--border); border-radius: 10px; padding: 12px 15px; margin: 8px 15px; cursor: pointer; transition: 0.2s; position: relative; border-left: 4px solid transparent; }
+        .traffic-card:hover { background: #1c2228; border-color: #444; }
+        .traffic-card.active { background: rgba(162,155,254,0.1); border-color: var(--accent-purple); border-left-color: var(--accent-purple); box-shadow: 0 4px 15px rgba(162,155,254,0.1); }
+        
+        .method-badge { font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; font-weight: 900; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; margin-right: 8px; }
+        .method-get { background: rgba(52, 152, 219, 0.15); color: #3498db; }
+        .method-post { background: rgba(162, 155, 254, 0.15); color: var(--accent-purple); }
+        
+        .status-tag { font-size: 0.65rem; font-weight: 800; padding: 2px 6px; border-radius: 4px; }
+        .status-200 { background: rgba(46, 204, 113, 0.15); color: var(--accent-green); }
+        .status-error { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+        
+        .code-block-premium { background: #000; border: 1px solid var(--border); border-radius: 12px; padding: 15px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; line-height: 1.5; color: #d1d1d1; overflow-x: auto; max-height: 400px; }
+        .vuln-badge { background: var(--danger); color: white; font-size: 0.55rem; font-weight: 900; padding: 1px 4px; border-radius: 3px; margin-left: 5px; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        .detail-card { background: #15191d; border: 1px solid var(--border); border-radius: 16px; padding: 30px; height: 100%; display: flex; flex-direction: column; gap: 20px; }
+        .url-box { background: rgba(255,255,255,0.03); padding: 10px 15px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; border: 1px solid var(--border); color: var(--text-dim); }
+    </style>
+</head>
+<body>
+    <div id="app" class="app-container">
+        
+        <!-- ── VIEW: LANDING / AUTH / UPLOAD ── -->
+        <div id="view-landing" class="view-panel">
+            <div class="landing-split">
+                <div class="landing-left">
+                    <div class="brand-logo" style="font-size:2.5rem; margin-bottom:15px;">🛡️ Auth<span>Session</span></div>
+                    <h1 style="font-size: 3.5rem; font-weight: 900; margin-bottom: 20px; color:white; line-height:1.1;">Mobile Security <br> Laboratory.</h1>
+                    <p style="color:var(--text-dim); max-width:450px; line-height:1.6; font-size:1.1rem;">Analyse automatisée de l'authentification et du cycle de vie des sessions Android.</p>
+                </div>
+                <div class="landing-right">
+                    <!-- Login Section -->
+                    <div id="auth-section" class="auth-card hidden">
+                        <h2 style="margin-bottom:10px; font-weight:900;">Connexion Lab</h2>
+                        <p style="opacity:0.5; font-size:0.85rem; margin-bottom:30px;">Identifiants requis pour accéder aux modules de scan.</p>
+                        <input type="text" id="login-user" class="form-input" placeholder="admin">
+                        <input type="password" id="login-pass" class="form-input" placeholder="••••••••">
+                        <button class="btn-action" onclick="handleLogin()">SE CONNECTER</button>
+                        <div style="margin-top:20px; text-align:center; font-size:0.8rem; opacity:0.6;">
+                            Pas encore de compte ? <a href="#" onclick="toggleAuth(true)" style="color:var(--accent-purple); font-weight:700;">S'inscrire</a>
+                        </div>
+                        <div id="auth-err" style="color:var(--danger); text-align:center; margin-top:15px; font-size:0.8rem;"></div>
+                    </div>
+
+                    <!-- Register Section -->
+                    <div id="register-section" class="auth-card hidden">
+                        <h2 style="margin-bottom:10px; font-weight:900;">Inscription Lab</h2>
+                        <p style="opacity:0.5; font-size:0.85rem; margin-bottom:30px;">Créez un compte pour sauvegarder vos audits.</p>
+                        <input type="text" id="reg-user" class="form-input" placeholder="Nouvel utilisateur">
+                        <input type="password" id="reg-pass" class="form-input" placeholder="Mot de passe">
+                        <button class="btn-action" onclick="handleRegister()" style="background:var(--accent-blue);">CRÉER LE COMPTE</button>
+                        <div style="margin-top:20px; text-align:center; font-size:0.8rem; opacity:0.6;">
+                            Déjà un compte ? <a href="#" onclick="toggleAuth(false)" style="color:var(--accent-purple); font-weight:700;">Se connecter</a>
+                        </div>
+                        <div id="reg-err" style="color:var(--danger); text-align:center; margin-top:15px; font-size:0.8rem;"></div>
+                    </div>
+
+                    <!-- Upload Section (Visible after Auth) -->
+                    <div id="upload-section" class="auth-card">
+                        <h2 style="margin-bottom:10px; font-weight:900;">Scan Nouveau Projet</h2>
+                        <p style="opacity:0.5; font-size:0.85rem; margin-bottom:30px;">Sélectionnez l'APK cible pour l'audit MSTG.</p>
+                        <div class="upload-zone" id="drop-zone" onclick="document.getElementById('apk-file').click()" style="border:2px dashed #ddd; padding:40px; border-radius:20px; text-align:center; cursor:pointer; background:#f8f9fa; margin-bottom:20px;">
+                            <div style="font-size:3.5rem; margin-bottom:15px;">📦</div>
+                            <strong>Glissez l'APK ici</strong><br>
+                            <span style="font-size:0.8rem; opacity:0.4;">ou cliquez pour parcourir</span>
+                            <input type="file" id="apk-file" onchange="handleFile(this.files[0])" accept=".apk" hidden>
+                        </div>
+                        <div id="selected-file-info" class="hidden" style="margin-bottom:20px; padding:15px; background:#f0f2f5; border-radius:12px; display:flex; align-items:center; gap:12px;">
+                            <div style="font-size:1.5rem;">📱</div>
+                            <div style="flex:1;">
+                                <div id="file-name" style="font-weight:800; font-size:0.9rem;">App.apk</div>
+                                <div id="file-size" style="font-size:0.7rem; opacity:0.5;">0 MB</div>
+                            </div>
+                        </div>
+                        <button id="start-btn" class="btn-action hidden" onclick="startAnalysis()">LANCER L'ANALYSE GLOBALE</button>
+                        <div id="upload-status" class="hidden" style="text-align:center; margin-top:20px;">
+                            <div class="spinner" style="margin:0 auto;"></div>
+                            <p style="margin-top:15px; font-weight:800; color:var(--bg-dark-purple)">ANALYSE STATIQUE JADX...</p>
+                        </div>
+                        <div style="margin-top:30px; text-align:center;">
+                            <a href="#" onclick="switchToDashboard()" style="font-size:0.7rem; opacity:0.3; text-decoration:none; color:inherit;">⚡ Accéder directement aux résultats (sans scan)</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── VIEW: DASHBOARD ── -->
+        <div id="view-dashboard" class="view-panel hidden">
+            <header>
+                <div class="brand-logo" onclick="window.location.reload()">🛡️ Auth<span>Lab</span></div>
+                <nav>
+                    <div class="nav-item active" onclick="showTab('static')">Source Audit</div>
+                    <div class="nav-item" onclick="showTab('dynamic')">Traffic Interceptor</div>
+                    <div class="nav-item" onclick="showTab('attack')">Attack Lab</div>
+                    <div class="nav-item" onclick="showTab('lifecycle')">Session Lifecycle</div>
+                    <div class="nav-item" onclick="showTab('correlation')">Correlation</div>
+                    <div class="nav-item" onclick="showTab('report')">Executive Summary</div>
+                </nav>
+                <div class="header-actions">
+                    <div class="status-badge" id="proxy-status" style="font-size:0.6rem; padding:4px 8px; border-radius:4px; background:#333;">🔴 PROXY</div>
+                    <div class="status-badge" id="frida-status" style="font-size:0.6rem; padding:4px 8px; border-radius:4px; background:#333;">🔴 FRIDA</div>
+                    <div id="apk-name-label" style="font-size:0.75rem; font-weight:800; opacity:0.5;">APP: InsecureBankv2.apk</div>
+                    <div class="score-badge" id="header-score">SCORE: 60/150</div>
+                    <div style="font-size:0.8rem; font-weight:800; display:flex; align-items:center; gap:5px;">
+                        👤 <span id="user-label">admin</span>
+                    </div>
+                    <button class="btn-new-scan" onclick="resetApp()">NEW SCAN</button>
+                    <button class="btn-logout" onclick="handleLogout()">LOGOUT</button>
+                </div>
+            </header>
+
+            <main>
+                <!-- TAB: SOURCE CODE AUDIT -->
+                <div id="tab-static" class="tab-panel">
+                    <div class="sidebar">
+                        <div style="padding:20px; border-bottom:1px solid var(--border);">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div style="font-size:1.8rem; font-weight:900; color:var(--accent-purple);" id="static-total-val">0</div>
+                                <div style="text-align:right;">
+                                    <div style="font-size:0.6rem; font-weight:900; color:var(--danger);" id="count-high">0 HIGH</div>
+                                    <div style="font-size:0.6rem; font-weight:900; color:var(--warning);" id="count-med">0 MED</div>
+                                </div>
+                            </div>
+                            <div style="font-size:0.65rem; font-weight:800; opacity:0.4; margin-top:5px;">VULNÉRABILITÉS STATIQUES</div>
+                        </div>
+                        <div style="padding:10px 20px; border-bottom:1px solid var(--border); display:flex; gap:5px; flex-wrap:wrap;">
+                            <button class="btn-new-scan" style="font-size:0.6rem; padding:4px 8px;" onclick="filterStatic('ALL')">TOUS</button>
+                            <button class="btn-new-scan" style="font-size:0.6rem; padding:4px 8px;" onclick="filterStatic('HIGH')">HIGH</button>
+                            <button class="btn-new-scan" style="font-size:0.6rem; padding:4px 8px;" onclick="filterStatic('MEDIUM')">MED</button>
+                            <button class="btn-new-scan" style="font-size:0.6rem; padding:4px 8px;" onclick="filterStatic('INFO')">INFO</button>
+                        </div>
+                        <div id="static-list" style="flex:1; overflow-y:auto;"></div>
+                        <div style="padding:15px; display:flex; flex-direction:column; gap:10px;">
+                            <button class="btn-action" onclick="showTab('dynamic')" style="background:var(--accent-purple); font-size:0.75rem; padding:12px;">🚀 ANALYSE DYNAMIQUE</button>
+                            <button class="btn-action" onclick="runAIAnalysis()" style="font-size:0.75rem; padding:12px;">🧠 ANALYSER AVEC L'IA</button>
+                        </div>
+                    </div>
+                    <div class="content">
+                        <div id="static-empty" style="text-align:center; margin-top:100px; opacity:0.1;"><h2>SÉLECTIONNEZ UNE VULNÉRABILITÉ</h2></div>
+                        <div id="static-content" class="hidden">
+                            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px;">
+                                <div>
+                                    <h1 id="st-title" style="font-weight:900; font-size:2rem; color:var(--accent-purple);"></h1>
+                                    <div id="st-owasp" style="color:var(--danger); font-family:monospace; font-weight:800; font-size:0.85rem; margin-top:5px;"></div>
+                                </div>
+                                <div id="st-file" style="font-family:monospace; opacity:0.5; font-size:0.75rem;"></div>
+                            </div>
+
+                            <div style="background:#000; border-radius:12px; border:1px solid var(--border); overflow:hidden; margin-bottom:25px;">
+                                <div style="padding:10px 20px; background:#111; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                                    <span style="font-size:0.7rem; font-family:monospace; opacity:0.5;">SOURCE CODE VIEW</span>
+                                    <span id="st-line-evidence" style="font-size:0.65rem; font-weight:900; color:var(--danger);"></span>
+                                </div>
+                                <div id="st-code-container" style="max-height:450px; overflow-y:auto; padding:10px 0;">
+                                    <div id="st-code" style="font-family:'JetBrains Mono', monospace; font-size:0.85rem;"></div>
+                                </div>
+                            </div>
+
+                            <!-- Panneau Evidence -->
+                            <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:12px; padding:25px;">
+                                <h3 style="font-size:0.8rem; font-weight:900; margin-bottom:15px; opacity:0.4;">EVIDENCE & IMPACT</h3>
+                                <div style="display:grid; grid-template-columns:1fr 1.5fr; gap:30px;">
+                                    <div style="display:flex; flex-direction:column; gap:15px;">
+                                        <div>
+                                            <div style="font-size:0.65rem; font-weight:900; opacity:0.3;">VULN TYPE</div>
+                                            <div id="ev-type" style="font-weight:800; font-size:0.85rem;"></div>
+                                        </div>
+                                        <div>
+                                            <div style="font-size:0.65rem; font-weight:900; opacity:0.3;">OWASP MASVS</div>
+                                            <div id="ev-masvs" style="font-weight:800; font-size:0.85rem; color:var(--warning);"></div>
+                                        </div>
+                                        <div>
+                                            <div style="font-size:0.65rem; font-weight:900; opacity:0.3;">EVIDENCE</div>
+                                            <div id="ev-snippet" style="font-family:monospace; font-size:0.75rem; color:var(--danger); background:rgba(239,68,68,0.1); padding:8px; border-radius:4px; margin-top:5px;"></div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:0.65rem; font-weight:900; opacity:0.3;">IMPACT RÉEL</div>
+                                        <div id="st-impact" style="font-size:0.9rem; line-height:1.6; margin-top:5px;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: TRAFFIC INTERCEPTOR -->
+                <div id="tab-dynamic" class="tab-panel hidden">
+                    <div class="sidebar">
+                        <div style="padding:20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+                            <div style="font-size:0.75rem; font-weight:800; opacity:0.5;">DYNAMIC FEED</div>
+                            <div style="display:flex; gap:5px;">
+                                <div class="sev-tag" id="proxy-badge" style="background:#333; color:#777;">PROXY</div>
+                                <div class="sev-tag" id="frida-badge" style="background:#333; color:#777;">FRIDA</div>
+                            </div>
+                        </div>
+                        <div id="traffic-list" style="flex:1; overflow-y:auto;"></div>
+                    </div>
+                    <div class="content">
+                        <div id="flow-empty" style="max-width: 600px; margin: 60px auto;">
+                            <h2 style="margin-bottom: 20px; font-weight: 900; color: var(--accent-purple);">En attente de trafic...</h2>
+                            <p style="opacity: 0.6; margin-bottom: 30px; line-height: 1.6;">Le laboratoire écoute activement les requêtes. Si aucun trafic n'apparaît, suivez cette checklist :</p>
+                            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; padding: 25px;">
+                                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                                    <div id="guide-proxy" style="font-size: 1.2rem;">🔴</div>
+                                    <div><strong>Démarrer le proxy réseau</strong><br><span style="font-size: 0.8rem; opacity: 0.5;">Assurez-vous que mitmproxy tourne sur le port 8080.</span></div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                                    <div id="guide-frida" style="font-size: 1.2rem;">🔴</div>
+                                    <div><strong>Injecter Frida (Bypass SSL/Root)</strong><br><span style="font-size: 0.8rem; opacity: 0.5;">Le serveur Frida doit être connecté à l'émulateur.</span></div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                                    <div style="font-size: 1.2rem;">📱</div>
+                                    <div><strong>Générer du trafic sur l'application</strong><br><span style="font-size: 0.8rem; opacity: 0.5;">Ouvrez l'application, connectez-vous (admin/admin@123), et naviguez.</span></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="flow-details" class="hidden" style="height:100%;">
+                            <div class="detail-card">
+                                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                    <div>
+                                        <h1 id="det-method-url" style="font-weight:900; font-size:1.6rem; margin-bottom:10px;"></h1>
+                                        <div class="url-box" id="det-full-url" style="margin-bottom:15px; font-size:0.75rem;"></div>
+                                        <div id="det-badges" style="display:flex; gap:8px;"></div>
+                                    </div>
+                                    <div id="det-timestamp" style="font-size:0.7rem; opacity:0.3; font-family:monospace;"></div>
+                                </div>
+
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:25px; overflow-y:auto; padding-right:10px; flex:1;">
+                                    <div>
+                                        <div style="font-size:0.75rem; font-weight:800; opacity:0.4; margin-bottom:10px;">REQUEST HEADERS</div>
+                                        <pre class="code-block-premium" id="det-headers"></pre>
+                                        
+                                        <div style="font-size:0.75rem; font-weight:800; opacity:0.4; margin:20px 0 10px;">REQUEST BODY</div>
+                                        <pre class="code-block-premium" id="det-req-body"></pre>
+                                    </div>
+                                    <div>
+                                        <div style="font-size:0.75rem; font-weight:800; opacity:0.4; margin-bottom:10px;">RESPONSE BODY</div>
+                                        <pre class="code-block-premium" id="det-res-body" style="color:var(--accent-green);"></pre>
+
+                                        <div style="font-size:0.75rem; font-weight:800; opacity:0.4; margin:20px 0 10px;">VULNÉRABILITÉS DÉTECTÉES</div>
+                                        <div id="det-vulns" style="display:flex; flex-direction:column; gap:10px;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: ATTACK LAB -->
+                <div id="tab-attack" class="tab-panel hidden">
+                    <div class="sidebar">
+                        <div style="padding:20px; border-bottom:1px solid var(--border); font-size:0.75rem; font-weight:800; opacity:0.5;">MODUULES D'EXPLOITATION</div>
+                        <div id="attack-list" style="flex:1; overflow-y:auto; padding:10px;">
+                            <div class="atk-card active" onclick="selectAttack('jwt_none')">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <div style="font-weight:800; font-size:0.9rem;">JWT alg:none</div>
+                                    <span class="sev-tag sev-high">Crit</span>
+                                </div>
+                                <div style="font-size:0.65rem; opacity:0.5; margin-top:5px;">Authentication Bypass</div>
+                            </div>
+                            <div class="atk-card" onclick="selectAttack('replay')">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <div style="font-weight:800; font-size:0.9rem;">Token Replay</div>
+                                    <span class="sev-tag sev-high">Crit</span>
+                                </div>
+                                <div style="font-size:0.65rem; opacity:0.5; margin-top:5px;">Post-Logout Exploitation</div>
+                            </div>
+                            <div class="atk-card" onclick="selectAttack('bruteforce')">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <div style="font-weight:800; font-size:0.9rem;">Brute Force Lockout</div>
+                                    <span class="sev-tag sev-med">Med</span>
+                                </div>
+                                <div style="font-size:0.65rem; opacity:0.5; margin-top:5px;">Tester la politique de blocage</div>
+                            </div>
+                            <div class="atk-card" onclick="selectAttack('enum')">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <div style="font-weight:800; font-size:0.9rem;">Username Enumeration</div>
+                                    <span class="sev-tag sev-med">Med</span>
+                                </div>
+                                <div style="font-size:0.65rem; opacity:0.5; margin-top:5px;">Différenciation des erreurs serveur</div>
+                            </div>
+                            <div class="atk-card" onclick="selectAttack('jwt_crack')">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <div style="font-weight:800; font-size:0.9rem;">JWT Secret Crack</div>
+                                    <span class="sev-tag sev-high">High</span>
+                                </div>
+                                <div style="font-size:0.65rem; opacity:0.5; margin-top:5px;">Attaque offline sur signature</div>
+                            </div>
+                            <div class="atk-card" onclick="selectAttack('concurrent')">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <div style="font-weight:800; font-size:0.9rem;">Concurrent Sessions</div>
+                                    <span class="sev-tag sev-med">Med</span>
+                                </div>
+                                <div style="font-size:0.65rem; opacity:0.5; margin-top:5px;">Sessions multiples simultanées</div>
+                            </div>
+                            <div class="atk-card" onclick="selectAttack('fixation')">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <div style="font-weight:800; font-size:0.9rem;">Session Fixation</div>
+                                    <span class="sev-tag sev-high">High</span>
+                                </div>
+                                <div style="font-size:0.65rem; opacity:0.5; margin-top:5px;">Persistance de l'identifiant</div>
+                            </div>
+                            <div class="atk-card" onclick="selectAttack('timeout')">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <div style="font-weight:800; font-size:0.9rem;">Session Timeout</div>
+                                    <span class="sev-tag sev-med">Med</span>
+                                </div>
+                                <div style="font-size:0.65rem; opacity:0.5; margin-top:5px;">Expiration automatique des tokens</div>
+                            </div>
+                            <div class="atk-card" onclick="selectAttack('chain')">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <div style="font-weight:800; font-size:0.9rem;">Full Exploit Chain</div>
+                                    <span class="sev-tag sev-high" style="background:var(--danger); color:white;">Crit</span>
+                                </div>
+                                <div style="font-size:0.65rem; opacity:0.5; margin-top:5px;">Automatisation d'exploit complet</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="content">
+                        <h2 style="font-weight:900; font-size:2rem; margin-bottom:5px;">Execution & Proof</h2>
+                        <div id="atk-meta" style="font-size:0.8rem; color:var(--accent-purple); font-weight:800; margin-bottom:20px;"></div>
+                        
+                        <div style="background:#050505; border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:20px;">
+                            <div style="font-size:0.65rem; font-weight:800; opacity:0.4; margin-bottom:10px;">PYTHON EXPLOIT SCRIPT</div>
+                            <pre id="atk-python-code" style="font-family:'JetBrains Mono', monospace; font-size:0.8rem; color:#a29bfe; overflow-x:auto;"></pre>
+                        </div>
+                        
+                        <button class="btn-action" onclick="runSelectedAttack()" style="width:auto; padding:12px 40px; font-size:0.8rem;">▶ LANCER L'EXPLOIT</button>
+                        
+                        <div style="margin-top:40px;">
+                            <div style="font-size:0.75rem; font-weight:800; opacity:0.4; margin-bottom:10px;">LIVE SERVER LOGS & PROOF</div>
+                            <div id="server-logs" class="terminal"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB: SESSION LIFECYCLE -->
+                <div id="tab-lifecycle" class="tab-panel hidden">
+                    <div class="content" style="max-width:1100px; margin:0 auto; background:transparent;">
+                        <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border); border-left:4px solid var(--accent-purple); padding:30px; border-radius:16px; margin-bottom:30px; display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <h2 style="font-weight:900; font-size:1.8rem;">Session Lifecycle Validation</h2>
+                                <p style="font-size:0.85rem; opacity:0.6; margin-top:5px;">Test séquentiel automatisé des 9 étapes critiques de gestion des sessions.</p>
+                            </div>
+                            <button class="btn-action" onclick="runFullLifecycle()" style="width:auto; padding:15px 40px;">LANCER LA CHAÎNE</button>
+                        </div>
+                        <div id="lifecycle-steps-container" class="lifecycle-list"></div>
+                    </div>
+                </div>
+
+                <!-- TAB: CORRELATION -->
+                <div id="tab-correlation" class="tab-panel hidden">
+                    <div class="content" style="max-width:1000px; margin:0 auto; background:transparent; text-align:center;">
+                        <h1 style="font-weight:900; font-size:2.5rem; margin-bottom:15px;">Corrélation Statique ↔ Dynamique</h1>
+                        <p style="opacity:0.6; margin-bottom:40px;">Analyse croisée entre les vulnérabilités du code source et le trafic réseau intercepté.</p>
+                        
+                        <button class="btn-action" onclick="runCorrelation()" style="width:auto; padding:18px 50px; font-size:0.9rem;">🔗 DÉMARRER LE MAPPING</button>
+                        
+                        <div id="correlation-confirmed" style="text-align:left; margin-top:50px; display:grid; gap:20px;"></div>
+                    </div>
+                </div>
+
+                <!-- TAB: EXECUTIVE SUMMARY -->
+                <div id="tab-report" class="tab-panel hidden">
+                    <div class="content" style="max-width:950px; margin:0 auto; background:transparent;">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:50px;">
+                            <div>
+                                <h1 style="font-weight:900; font-size:3.5rem;">Audit Report</h1>
+                                <p style="opacity:0.5; font-size:1rem;">Executive Summary & ML Recommendations</p>
+                            </div>
+                            <button class="btn-action" onclick="exportPDF()" style="width:auto; padding:12px 30px; background:var(--accent-blue);">📄 EXPORTER PDF</button>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:30px; margin-bottom:50px;">
+                            <div style="background:rgba(239,68,68,0.1); border:1px solid var(--danger); padding:35px; border-radius:24px;">
+                                <div style="font-size:0.75rem; font-weight:800; opacity:0.5; margin-bottom:10px;">NIVEAU DE RISQUE</div>
+                                <div id="rep-risk-level" style="font-size:3rem; font-weight:900; color:var(--danger);">CRITICAL</div>
+                            </div>
+                            <div style="background:rgba(162,155,254,0.1); border:1px solid var(--accent-purple); padding:35px; border-radius:24px;">
+                                <div style="font-size:0.75rem; font-weight:800; opacity:0.5; margin-bottom:10px;">SCORE DE SÉCURITÉ</div>
+                                <div id="rep-risk-score" style="font-size:3rem; font-weight:900; color:var(--accent-purple);">--/150</div>
+                                <div style="font-size: 0.75rem; opacity: 0.6; margin-top: 10px;">Basé sur le framework MSTG / MASVS</div>
+                            </div>
+                        </div>
+
+                        <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border); padding:30px; border-radius:20px; margin-bottom:30px;">
+                            <div style="font-weight:900; font-size:1.1rem; margin-bottom:20px;">📋 INVENTAIRE DES VULNÉRABILITÉS</div>
+                            <div id="rep-all-vulns" style="display:grid; gap:12px;"></div>
+                        </div>
+
+                        <div id="rep-ml-section" style="background:rgba(46,204,113,0.05); border:1px solid var(--accent-green); padding:30px; border-radius:20px;">
+                            <div style="font-weight:900; font-size:1.1rem; color:var(--accent-green); margin-bottom:15px;">🤖 RECOMMANDATIONS IA (GEMINI)</div>
+                            <div id="rep-ai-reco" style="font-size:0.9rem; line-height:1.7; opacity:0.9;">Analyse ML en cours...</div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
