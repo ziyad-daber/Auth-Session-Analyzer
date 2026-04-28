@@ -47,6 +47,37 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDtpsI5-ec4v6FE5iNwKleo1-PjV8
 # Ollama Local
 OLLAMA_URL     = "http://127.0.0.1:11434/api/generate"
 
-# ─── Créer les dossiers si inexistants ───────────────────────────────────────
+# ─── Target Server Configuration ─────────────────────────────────────────────
+# Path to InsecureBankv2 server script (configurable via environment)
+TARGET_SERVER_PATH = os.getenv(
+    "TARGET_SERVER_PATH",
+    r"C:\Users\hajar\Desktop\projet-mobile\Android-InsecureBankv2\AndroLabServer\server_v3.py"
+)
+
+# Alternative: Auto-detect from parent directory
+def get_target_server_path():
+    """Try to find the target server script in common locations."""
+    # 1. Check environment variable
+    env_path = os.getenv("TARGET_SERVER_PATH")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    # 2. Check configured default
+    if os.path.exists(TARGET_SERVER_PATH):
+        return TARGET_SERVER_PATH
+
+    # 3. Try relative to ROOT_DIR (parent folder)
+    parent_dir = os.path.dirname(ROOT_DIR)
+    relative_paths = [
+        os.path.join(parent_dir, "Android-InsecureBankv2", "AndroLabServer", "server_v3.py"),
+        os.path.join(ROOT_DIR, "..", "Android-InsecureBankv2", "AndroLabServer", "server_v3.py"),
+    ]
+    for path in relative_paths:
+        if os.path.exists(path):
+            return path
+
+    return None
+
+# ─── Create directories if they don't exist ──────────────────────────────────
 for _dir in [UPLOAD_DIR, REPORTS_DIR, LOGS_DIR]:
     os.makedirs(_dir, exist_ok=True)

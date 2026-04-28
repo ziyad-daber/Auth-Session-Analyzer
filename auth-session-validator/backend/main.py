@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 
-from config import UPLOAD_DIR, ROOT_DIR, JADX_PATH
+from config import UPLOAD_DIR, ROOT_DIR, JADX_PATH, get_target_server_path
 from dynamic_analyzer.proxy_manager import proxy_manager
 from dynamic_analyzer.frida_manager import frida_manager
 from dynamic_analyzer.setup_manager import setup_manager
@@ -29,13 +29,29 @@ from correlation_engine.risk_scorer import RiskScorer
 from correlation_engine.ai_recommender import AIRecommender
 from correlation_engine.token_analyzer import TokenAnalyzer
 from correlation_engine.correlator import CorrelationEngine
+from correlation_engine.token_lifetime_analyzer import TokenLifetimeAnalyzer
 from active_validator.attack_chain import AutoAttackChain
+from active_validator.token_rotation_tester import TokenRotationTester
 from report_generator.pdf_generator import PDFReportGenerator
+
+# MASVS Compliance Module
+from masvs.checklist_generator import ChecklistGenerator
+from masvs.auth_type_detector import AuthTypeDetector
+from masvs.acceptance_criteria import AcceptanceCriteriaGenerator
+
+# Storage Scanner Module
+from static_analyzer.storage_scanner import StorageScanner
 
 ml_analyzer = SessionMLAnalyzer()
 risk_scorer = RiskScorer()
 ai_recommender = AIRecommender()
 token_analyzer = TokenAnalyzer()
+token_lifetime_analyzer = TokenLifetimeAnalyzer()
+token_rotation_tester = TokenRotationTester(base_url="http://127.0.0.1:8888")
+checklist_generator = ChecklistGenerator()
+auth_type_detector = AuthTypeDetector()
+acceptance_criteria_generator = AcceptanceCriteriaGenerator()
+storage_scanner = StorageScanner()
 
 import hashlib
 
@@ -411,22 +427,21 @@ async def analyze_static(apk: UploadFile = File(...)):
 
 def start_target_server():
     """Démarre le serveur AndroLabServer en arrière-plan."""
-    server_script = r"C:\Users\hajar\Desktop\projet-mobile\Android-InsecureBankv2\AndroLabServer\server_v3.py"
-    if os.path.exists(server_script):
+    server_script = get_target_server_path()
+    if server_script and os.path.exists(server_script):
         import threading
         import subprocess
         def run_server():
             try:
-                # On utilise python directement
                 subprocess.run(["python", server_script], capture_output=False)
             except Exception as e:
                 print(f"[!] Erreur serveur cible : {e}")
-        
+
         thread = threading.Thread(target=run_server, daemon=True)
         thread.start()
         print(f"[*] Démarrage automatique du serveur cible : {server_script}", flush=True)
     else:
-        print(f"[!] Serveur cible introuvable à : {server_script}", flush=True)
+        print(f"[!] Serveur cible introuvable - configurez TARGET_SERVER_PATH env var", flush=True)
 
 async def trigger_auto_setup_internal():
     """Logique interne de démarrage automatique."""
@@ -970,33 +985,21 @@ async def attack_lifecycle_full():
         "critical_found": critical_found
     }
 
-def start_target_server():
-    """Lance le serveur AndroLabServer (InsecureBankv2) automatiquement."""
-    import sys
-    # On remonte d'un niveau par rapport à ROOT_DIR pour trouver le dossier frère
-    parent_dir = os.path.dirname(ROOT_DIR)
-    server_path = os.path.join(parent_dir, "Android-InsecureBankv2", "AndroLabServer", "server_v3.py")
-    if os.path.exists(server_path):
-        print(f"[*] Démarrage automatique du serveur cible : {server_path}")
-        # On utilise le MEME python que le backend pour être sûr d'avoir les libs
-        subprocess.Popen([sys.executable, server_path], 
-                         creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
-        return True
-    return False
-
 @app.get("/api/logs/server")
 async def get_server_logs():
     """Lit les logs du serveur cible (local ou via proxy)."""
     # 1. Tenter le log local (InsecureBank)
-    log_path = r"c:\Users\hajar\Desktop\projet-mobile\Android-InsecureBankv2\AndroLabServer\server_access.log"
-    if os.path.exists(log_path):
-        try:
-            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
-            # Strip whitespace and filter empty lines, return last 50
-            clean_lines = [l.rstrip('\n\r') for l in lines if l.strip()]
-            return {"logs": clean_lines[-50:]}
-        except: pass
+    server_script = get_target_server_path()
+    if server_script:
+        log_path = server_script.replace("server_v3.py", "server_access.log")
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    lines = f.readlines()
+                # Strip whitespace and filter empty lines, return last 50
+                clean_lines = [l.rstrip('\n\r') for l in lines if l.strip()]
+                return {"logs": clean_lines[-50:]}
+            except: pass
     
     # 2. Sinon, retourner le trafic du proxy (flows récents)
     if proxy_manager.is_running:
@@ -1057,21 +1060,283 @@ async def correlation_analyze():
             })
     return {"correlations": correlations}
 
-@app.get("/api/report/pdf")
-async def export_pdf():
-    """Génère et retourne un rapport PDF (simulé via HTML vers PDF ou fichier statique)."""
-    # En pratique on utiliserait WeasyPrint ou ReportLab
-    # Ici on renvoie un placeholder PDF ou on simule l'export
-    return {"message": "Génération du PDF en cours...", "url": "/static/report.pdf"}
+# =============================================================================
+# NOUVEAUX ENDPOINTS - TOKEN LIFETIME & ROTATION & MASVS
+# =============================================================================
 
-@app.get("/api/status")
-async def get_system_status():
-    """Retourne le statut réel de Frida et du Proxy."""
-    return {
-        "proxy": proxy_manager.is_running,
-        "frida": frida_manager.is_connected if hasattr(frida_manager, 'is_connected') else False,
-        "device": "Android Emulator (10.0.2.2)"
-    }
+@app.post("/api/analyze/token/lifetime")
+async def analyze_token_lifetime(tokens: list = None):
+    """
+    Analyse la durée de vie et la sécurité des tokens JWT.
+
+    Vérifie :
+    - Claims temporels (exp, iat, nbf)
+    - Durée de vie excessive
+    - Algorithmes de signature
+    - Claims requis
+    """
+    try:
+        if not tokens:
+            # Extraire les tokens du trafic actuel
+            from dynamic_analyzer.jwt_interceptor import extract_jwts_from_traffic
+            traffic = proxy_manager.get_live_results()
+            jwts = extract_jwts_from_traffic(traffic)
+
+            if not jwts:
+                return {"status": "no_tokens", "message": "Aucun token JWT capturé pour analyse"}
+
+            tokens = [{"token": j["token"], "type": "access"} for j in jwts]
+
+        # Analyser les tokens
+        if isinstance(tokens, list) and len(tokens) > 0:
+            if isinstance(tokens[0], dict):
+                results = token_lifetime_analyzer.analyze_multiple_tokens(tokens)
+            else:
+                results = token_lifetime_analyzer.analyze_token(tokens[0])
+        else:
+            results = {"error": "Format de tokens invalide"}
+
+        return {"status": "success", "analysis": results}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/analyze/token/rotation")
+async def analyze_token_rotation(login_url: str = None, credentials: dict = None):
+    """
+    Teste la rotation des tokens (refresh token security).
+
+    Tests exécutés :
+    - Refresh token one-time use
+    - Access token change on refresh
+    - Family tracking
+    - Concurrent refresh attack detection
+    """
+    try:
+        if not login_url:
+            login_url = session_state.get("endpoints", {}).get("auth_endpoints", [{}])[0].get("url", "http://127.0.0.1:8888/login")
+
+        base_url = login_url.rsplit('/', 1)[0]
+        tester = TokenRotationTester(base_url=base_url)
+
+        creds = credentials or {"username": "admin", "password": "admin@123"}
+        results = await tester.run_all_rotation_tests(
+            refresh_endpoint=f"{base_url}/token/refresh",
+            credentials=creds
+        )
+
+        # Sauvegarder les résultats
+        session_state["attack_results"].append({
+            "type": "TOKEN_ROTATION_ANALYSIS",
+            "target": base_url,
+            "status": results.get("summary", {}).get("overall_status", "UNKNOWN"),
+            "owasp": "MASVS-AUTH-5",
+            "details": results
+        })
+        save_session(session_state)
+
+        return {"status": "success", "rotation_tests": results}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/masvs/generate-checklist")
+async def generate_masvs_checklist(auth_type: str = None):
+    """
+    Génère une checklist de conformité MASVS basée sur l'analyse.
+
+    Args:
+        auth_type: Type d'authentification (auto-détecté si None)
+                   Options: jwt, oauth2, session, all
+    """
+    try:
+        # Utiliser les findings actuels
+        static_findings = session_state.get("static_findings", [])
+
+        # Récupérer le trafic dynamique pour analyse complémentaire
+        traffic = proxy_manager.get_live_results() if proxy_manager.is_running else {"flows": []}
+        dynamic_findings = traffic.get("findings", [])
+
+        # Générer la checklist
+        checklist = checklist_generator.generate_checklist(
+            static_findings=static_findings,
+            dynamic_findings=dynamic_findings,
+            auth_type=auth_type,
+            app_name=session_state.get("package_name", "Unknown App")
+        )
+
+        # Sauvegarder dans la session
+        session_state["masvs_checklist"] = checklist
+        save_session(session_state)
+
+        return {
+            "status": "success",
+            "checklist": checklist,
+            "markdown": checklist_generator.export_markdown(checklist)
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/masvs/detect-auth-type")
+async def detect_authentication_type():
+    """
+    Détecte automatiquement le type d'authentification utilisé par l'application.
+
+    Returns:
+        Type d'auth détecté avec preuves et confiance
+    """
+    try:
+        static_findings = session_state.get("static_findings", [])
+
+        # Analyse statique
+        static_result = auth_type_detector.analyze_static_findings(static_findings)
+
+        # Analyse dynamique (si trafic disponible)
+        dynamic_result = {"detected_types": [], "evidence": []}
+        if proxy_manager.is_running:
+            traffic = proxy_manager.get_live_results()
+            dynamic_result = auth_type_detector.analyze_dynamic_traffic(traffic.get("flows", []))
+
+        # Analyse des endpoints
+        endpoint_result = {"detected_types": [], "evidence": []}
+        if session_state.get("endpoints"):
+            endpoint_result = auth_type_detector.analyze_endpoints(session_state["endpoints"])
+
+        # Combiner les résultats
+        all_types = set()
+        all_types.update(static_result.get("all_detected_types", []))
+        all_types.update(dynamic_result.get("detected_types", []))
+        all_types.update(endpoint_result.get("detected_types", []))
+
+        return {
+            "status": "success",
+            "primary_auth_type": static_result.get("primary_auth_type", "unknown"),
+            "all_detected_types": list(all_types),
+            "confidence": static_result.get("confidence", {}),
+            "static_evidence": static_result.get("evidence", []),
+            "dynamic_evidence": dynamic_result.get("evidence", []),
+            "endpoint_evidence": endpoint_result.get("evidence", [])
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/masvs/acceptance-criteria")
+async def generate_acceptance_criteria(user_story: str = None):
+    """
+    Génère des critères d'acceptation de sécurité pour une user story.
+
+    Args:
+        user_story: Description de la user story (optionnel)
+    """
+    try:
+        # Utiliser la checklist existante ou en générer une nouvelle
+        checklist = session_state.get("masvs_checklist")
+        if not checklist:
+            # Générer une nouvelle checklist
+            static_findings = session_state.get("static_findings", [])
+            checklist = checklist_generator.generate_checklist(
+                static_findings=static_findings,
+                app_name=session_state.get("package_name", "Unknown App")
+            )
+
+        # Générer les critères d'acceptation
+        criteria = checklist_generator.generate_security_acceptance_criteria(
+            checklist=checklist,
+            user_story=user_story or "Authentication feature"
+        )
+
+        return {
+            "status": "success",
+            "user_story": user_story or "Authentication feature",
+            "acceptance_criteria": criteria,
+            "total_criteria": len(criteria)
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/masvs/checklist/export")
+async def export_checklist(format: str = "markdown"):
+    """
+    Exporte la checklist MASVS dans un format spécifique.
+
+    Args:
+        format: "markdown", "json", "html"
+    """
+    try:
+        checklist = session_state.get("masvs_checklist")
+        if not checklist:
+            return {"status": "error", "message": "Aucune checklist générée. Appelez d'abord /api/masvs/generate-checklist"}
+
+        if format == "json":
+            return {
+                "status": "success",
+                "content": checklist_generator.export_json(checklist),
+                "content_type": "application/json"
+            }
+        elif format == "markdown":
+            return {
+                "status": "success",
+                "content": checklist_generator.export_markdown(checklist),
+                "content_type": "text/markdown"
+            }
+        else:
+            return {"status": "error", "message": f"Format non supporté: {format}"}
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/analyze/storage")
+async def analyze_storage_security():
+    """
+    Analyse la sécurité du stockage des tokens et données sensibles.
+
+    Détecte:
+    - Stockage insecure dans SharedPreferences
+    - Fuites dans Logcat
+    - Tokens dans URLs
+    - Envoi à des SDKs analytics
+    - Stockage fichier non sécurisé
+    """
+    try:
+        # Vérifier si le code source est disponible
+        jadx_dir = session_state.get("jadx_output_dir")
+        if not jadx_dir or not os.path.exists(jadx_dir):
+            return {"status": "error", "message": "Code source non disponible. Analysez d'abord l'APK."}
+
+        # Scanner le stockage
+        storage_results = storage_scanner.analyze_token_storage(
+            tokens=[],  # Tokens déjà dans session_state
+            source_dir=jadx_dir
+        )
+
+        # Vérifier l'usage de stockage sécurisé
+        secure_storage = storage_scanner.check_secure_storage_usage(jadx_dir)
+
+        # Sauvegarder les résultats
+        session_state["storage_analysis"] = {
+            **storage_results,
+            "secure_storage_usage": secure_storage
+        }
+        save_session(session_state)
+
+        return {
+            "status": "success",
+            "storage_analysis": storage_results,
+            "secure_storage": secure_storage
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 
 @app.post("/api/session/reset")
 async def reset_session():
@@ -1080,7 +1345,9 @@ async def reset_session():
     session_state = {
         "package_name": "com.android.insecurebankv2",
         "last_apk": None,
-        "static_findings": []
+        "static_findings": [],
+        "masvs_checklist": None,
+        "storage_analysis": None
     }
     proxy_manager.addon.flows = []
     proxy_manager.addon.jwt_tokens = []

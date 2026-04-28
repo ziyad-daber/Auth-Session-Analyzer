@@ -1,68 +1,289 @@
-# 🛠️ Guide de Dépannage - Auth & Session Validator
+# Troubleshooting Guide - Auth & Session Analyzer
 
-Ce guide explique comment résoudre les problèmes courants rencontrés lors de l'analyse dynamique avec un émulateur Android, notamment les problèmes de réseau et de connexion Frida.
-
-## 1. Problèmes de Connexion Réseau (Emulator Offline)
-Si l'émulateur ne parvient pas à contacter le serveur (même avec `10.0.2.2`), utilisez le **Tunnel ADB Reverse**. Cela force l'émulateur à utiliser la connexion USB pour atteindre les services sur votre machine.
-
-### Commandes à exécuter :
-```powershell
-# Rediriger le trafic de l'émulateur vers votre PC
-adb reverse tcp:8888 tcp:8888  # Pour le serveur InsecureBank
-adb reverse tcp:8000 tcp:8000  # Pour le backend AuthValidator
-adb reverse tcp:8080 tcp:8080  # Pour le Proxy MITM
-```
-
-### Configuration dans l'application :
-Une fois le tunnel activé, utilisez **127.0.0.1** au lieu de `10.0.2.2` dans les paramètres de l'application Android.
+This guide explains how to resolve common issues encountered during dynamic analysis with Android emulators, including network and Frida connection problems.
 
 ---
 
-## 2. Problèmes Frida (Instrumentation)
-Si Frida ne parvient pas à s'attacher ou si le dashboard reste vide.
+## Quick Start
 
-### Vérifier le serveur Frida sur l'appareil :
-```powershell
-# S'assurer d'être Root
+### Check System Status
+
+```bash
+# Check backend is running
+curl http://localhost:8001/api/status
+
+# Check components
+curl http://localhost:8001/api/status/components
+```
+
+### Required Components
+
+| Component | Port | Status Check |
+|-----------|------|--------------|
+| Backend FastAPI | 8001 | `/api/status` |
+| MITM Proxy | 8080 | `/api/proxy/status` |
+| Frida Server | 27042 | `adb shell pgrep frida-server` |
+| Test Server (InsecureBank) | 8888 | `curl http://localhost:8888` |
+
+---
+
+## 1. Network Connection Issues (Emulator Offline)
+
+If the emulator cannot reach the server (even with `10.0.2.2`), use **ADB Reverse Tunnel**. This forces the emulator to use USB to reach services on your machine.
+
+### Commands to Run:
+
+```bash
+# Redirect emulator traffic to your PC
+adb reverse tcp:8888 tcp:8888  # For InsecureBank server
+adb reverse tcp:8001 tcp:8001  # For backend
+adb reverse tcp:8080 tcp:8080  # For MITM proxy
+```
+
+### Application Configuration:
+
+Once the tunnel is active, use **127.0.0.1** instead of `10.0.2.2` in your Android app configuration.
+
+---
+
+## 2. Frida Issues (Instrumentation)
+
+If Frida cannot attach or the dashboard remains empty.
+
+### Check Frida Server on Device:
+
+```bash
+# Ensure root access
 adb root
 
-# Vérifier si le serveur tourne
+# Check if server is running
 adb shell pgrep frida-server
 
-# Si non, le relancer
+# If not, restart it
 adb shell "/data/local/tmp/frida-server &"
 ```
 
-### Relancer l'analyse depuis le backend :
-```powershell
-# Utiliser curl pour forcer le redémarrage
-curl -X POST "http://localhost:8000/api/frida/start?package_name=com.android.insecurebankv2"
+### Restart Analysis from Backend:
+
+```bash
+# Use curl to force restart
+curl -X POST "http://localhost:8001/api/frida/start?package_name=com.android.insecurebankv2"
 ```
+
+### Common Frida Problems:
+
+| Problem | Solution |
+|---------|----------|
+| "Connection refused" | Run `adb root` first |
+| "Unable to attach" | Kill existing frida-server: `adb shell "killall frida-server"` |
+| Version mismatch | Update frida-tools: `pip install -U frida-tools` |
+| Process not found | Use spawn mode via `/api/frida/spawn` endpoint |
 
 ---
 
-## 3. Lancement du Serveur de Test (InsecureBankv2)
-L'application Android a besoin d'un serveur pour valider le login.
+## 3. Test Server (InsecureBankv2)
 
-### Commande :
-```powershell
-cd c:\Users\hajar\Desktop\projet-mobile\Android-InsecureBankv2\AndroLabServer
+The Android app needs a server to validate login.
+
+### Command:
+
+```bash
+cd path/to/Android-InsecureBankv2/AndroLabServer
 python server_v3.py
 ```
-*Note : Utilisez `server_v3.py` pour Python 3.*
+
+*Note: Use `server_v3.py` for Python 3.*
+
+### Auto-Start:
+
+The backend automatically starts the test server when detecting `InsecureBankv2` APK. Configure via `TARGET_SERVER_PATH` environment variable if needed.
 
 ---
 
-## 4. Configuration du Proxy
-Pour que le trafic soit intercepté par le dashboard :
-1.  **Proxy Android** : Réglez le proxy de l'émulateur sur `127.0.0.1:8080` (après avoir fait le `adb reverse`).
-2.  **Certificat** : Si vous testez du HTTPS, installez le certificat `mitm.it` sur l'appareil.
+## 4. Proxy Configuration
+
+For traffic to be intercepted:
+
+1. **Android Proxy:** Set emulator proxy to `127.0.0.1:8080` (after `adb reverse`)
+2. **Certificate:** For HTTPS testing, install the `mitm.it` certificate on the device
+
+### Installing mitmproxy Certificate:
+
+```bash
+# 1. Start proxy
+curl -X POST http://localhost:8001/api/proxy/start
+
+# 2. On Android device/emulator:
+# - Configure proxy: Settings > Wi-Fi > Long-press network > Modify > Proxy: Manual
+# - Host: 127.0.0.1, Port: 8080
+
+# 3. Open browser on device and visit:
+http://mitm.it
+
+# 4. Download and install the certificate
+# - For Android 7+: Requires root or Magisk module
+```
 
 ---
 
-## 💡 Astuce Dashboard
-Si le panneau de droite ne s'affiche pas quand vous cliquez sur un flux, **rafraîchissez la page (F5)**. J'ai corrigé le code JavaScript pour éviter que ce problème ne se reproduise.
+## 5. JWT Interception Issues
+
+If JWT tokens are not being captured:
+
+### Check Traffic Flow:
+
+```bash
+curl http://localhost:8001/api/proxy/traffic
+```
+
+### Verify Token Format:
+
+- Tokens must be in `Authorization: Bearer <token>` header
+- Or in request/response body as JSON field
+
+### Frida Fallback:
+
+If proxy cannot capture HTTPS traffic (SSL pinning), Frida interceptor will capture tokens automatically.
 
 ---
 
-**Identifiants par défaut (InsecureBank) :** `admin` / `admin@123`
+## 6. Backend Path Errors
+
+If you see hardcoded path errors:
+
+### Fix:
+
+Edit `backend/config.py`:
+
+```python
+TARGET_SERVER_PATH = os.getenv(
+    "TARGET_SERVER_PATH",
+    r"C:\Your\Path\To\Android-InsecureBankv2\AndroLabServer\server_v3.py"
+)
+```
+
+Or set environment variable:
+
+```bash
+export TARGET_SERVER_PATH="/your/path/to/server_v3.py"
+```
+
+---
+
+## 7. PDF Report Generation Fails
+
+### Check Dependencies:
+
+```bash
+pip install reportlab
+```
+
+### Verify:
+
+```bash
+python -c "import reportlab; print(reportlab.__version__)"
+```
+
+---
+
+## Token Security Analysis
+
+### Token Lifetime Analyzer
+
+| Problem | Solution |
+|---------|----------|
+| Token without `exp` claim | CRITICAL vulnerability - token never expires |
+| Lifetime > 24h | HIGH vulnerability - reduce lifetime or use refresh tokens |
+| Missing claims (iss, sub, aud) | LOW-MEDIUM vulnerabilities depending on claim |
+
+### Token Rotation Tester
+
+| Problem | Solution |
+|---------|----------|
+| Refresh token reusable | CRITICAL - implement one-time use rotation |
+| Access token unchanged on refresh | MEDIUM - generate new access token each refresh |
+| Race condition on refresh | HIGH - use transactional locks |
+
+### Storage Scanner
+
+| Problem | Solution |
+|---------|----------|
+| Unencrypted SharedPreferences | Use `EncryptedSharedPreferences` |
+| Tokens in Logcat | Remove sensitive logs, use `BuildConfig.DEBUG` |
+| Tokens in URLs | Use `Authorization: Bearer <token>` headers |
+| No Keystore usage | Implement `Android Keystore` for cryptographic keys |
+
+---
+
+## MASVS Compliance
+
+### Generate Checklist
+
+```bash
+# Detect authentication type
+curl -X POST http://localhost:8001/api/masvs/detect-auth-type
+
+# Generate checklist
+curl -X POST http://localhost:8001/api/masvs/generate-checklist
+
+# Export to Markdown
+curl http://localhost:8001/api/masvs/checklist/export?format=markdown
+```
+
+### Acceptance Criteria
+
+```bash
+# Generate for a user story
+curl -X POST "http://localhost:8001/api/masvs/acceptance-criteria?user_story=Login+with+JWT"
+```
+
+---
+
+## Dashboard Issues
+
+### Right Panel Not Showing
+
+If the right panel doesn't display when clicking a flow:
+
+1. **Refresh the page (F5)**
+2. Check browser console for JavaScript errors
+3. Verify backend is returning traffic data
+
+### Traffic Not Updating
+
+1. Check proxy status: `curl http://localhost:8001/api/proxy/status`
+2. Restart proxy: `curl -X POST http://localhost:8001/api/proxy/start`
+3. Check Android proxy configuration
+
+---
+
+## Default Credentials (InsecureBank)
+
+Username: `admin`
+Password: `admin@123`
+
+---
+
+## Log Collection
+
+### Get Server Logs:
+
+```bash
+curl http://localhost:8001/api/logs/server
+```
+
+### Get Backend Logs:
+
+Check console output where `python backend/main.py` is running.
+
+---
+
+## Session Reset
+
+If session state becomes corrupted:
+
+```bash
+curl -X POST http://localhost:8001/api/session/reset
+```
+
+This clears all findings and resets to default state.

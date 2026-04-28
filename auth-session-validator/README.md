@@ -1,63 +1,167 @@
-# 🛡️ Auth and Session Analyzer
+# Auth & Session Analyzer
 
-> Outil d'audit avancé pour la validation de vulnérabilités d'authentification et de session dans les applications Android.
+Advanced security audit tool for authentication and session vulnerabilities in Android applications.
 
-## 🚀 Guide de Lancement Rapide
+## Quick Start
 
-Suivez ces étapes pour lancer l'outil correctement sur votre machine.
+### 1. Environment Setup
 
-### 1. Préparation de l'Environnement
-Assurez-vous d'utiliser l'environnement virtuel Python dédié pour garantir la présence de toutes les dépendances.
+```bash
+# Navigate to project
+cd auth-session-validator
 
-```powershell
-# Activer l'environnement virtuel (Windows)
-.\venv\Scripts\activate
-```
+# Create and activate virtual environment
+python -m venv venv
+venv\Scripts\activate  # Windows
+source venv/bin/activate  # Linux/macOS
 
-### 2. Installation des Dépendances
-Si ce n'est pas déjà fait, installez les bibliothèques nécessaires :
-```powershell
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### 3. Lancement du Serveur Backend
-Le backend est propulsé par **FastAPI**. Il gère l'analyse statique (JADX), le proxy dynamique (Mitmproxy) et le moteur de corrélation.
+### 2. Start the Backend
 
-```powershell
-# Lancer le backend depuis la racine du projet
+```bash
 python backend/main.py
 ```
-*Le serveur démarrera sur **http://127.0.0.1:8000**.*
 
-### 4. Accès au Dashboard
-Une fois le backend lancé, ouvrez votre navigateur et accédez à :
-👉 **[http://localhost:8000](http://localhost:8000)**
+The server starts on **http://127.0.0.1:8001**
 
----
+### 3. Access the Dashboard
 
-## 🛠️ Configuration des Composants
-
-### 📱 Analyse Statique (JADX)
-L'outil utilise **JADX** pour décompiler les APK.
-- **Chemin configuré :** `tools/jadx/jadx-cli/bin/jadx.bat`
-- **Action :** Glissez-déposez un APK dans le dashboard pour lancer le scan automatique.
-
-### 🌐 Analyse Dynamique (Proxy)
-- Un proxy MITM est automatiquement lancé sur le port **8080**.
-- **Configuration Android :** Réglez le proxy de votre émulateur/téléphone sur l'IP de votre PC et le port configuré.
-- **Certificat :** Visitez `mitm.it` sur l'appareil mobile pour installer le certificat CA.
-
-### 🎯 Serveur Cible (InsecureBankv2)
-Si vous testez l'APK `InsecureBankv2`, le backend tentera de lancer automatiquement le serveur `AndroLabServer` pour simuler l'API vulnérable.
+Open your browser to: **http://localhost:8000**
 
 ---
 
-## 📂 Structure du Projet
-- `backend/` : Logique API, Analyseurs, Proxy.
-- `frontend/` : Interface utilisateur (HTML/JS/CSS).
-- `uploads/` : Stockage temporaire des APKs et rapports.
-- `reports/` : Rapports PDF générés.
+## Features
+
+### Static Analysis (JADX)
+- APK decompilation and source code analysis
+- Hardcoded secrets, weak crypto, JWT leaks detection
+- Endpoint and permission extraction
+- Storage security scanning
+
+### Dynamic Analysis (Proxy + Frida)
+- HTTP/HTTPS traffic interception
+- Frida script injection for SSL pinning bypass
+- Real-time JWT token extraction
+
+### Token Security Tests
+- **Token Lifetime** (`/api/analyze/token/lifetime`) - Analyzes temporal claims (exp, iat, nbf)
+- **Token Rotation** (`/api/analyze/token/rotation`) - Tests refresh token rotation security
+
+### MASVS Compliance
+- **Checklist Generator** (`/api/masvs/generate-checklist`) - Generates checklists based on auth type
+- **Acceptance Criteria** (`/api/masvs/acceptance-criteria`) - Security acceptance criteria for user stories
+
+### Storage Analysis
+- **Storage Scanner** (`/api/analyze/storage`) - Detects insecure storage (SharedPreferences, Logcat, URLs)
+
+### Attack Simulations
+- Session fixation
+- Session timeout validation
+- Concurrent session detection
+- Token replay after logout
+- JWT alg:none bypass
+- JWT secret cracking
+- Bruteforce lockout testing
+- Username enumeration
 
 ---
-> [!IMPORTANT]
-> **Audit Réel :** Pour capturer du trafic HTTPS sur Android 7+, vous devez injecter un script Frida de bypass SSL Pinning (intégré dans le module `dynamic_analyzer`).
+
+## Configuration
+
+### Static Analysis (JADX)
+- **Path:** `tools/jadx/jadx-cli/bin/jadx.bat` (Windows) or `jadx` (Linux/macOS)
+- **Action:** Upload an APK via the dashboard to trigger automatic scanning
+
+### Dynamic Analysis (Proxy)
+- MITM proxy runs on port **8080**
+- **Android Configuration:** Set your emulator/phone proxy to your PC IP and configured port
+- **Certificate:** Visit `mitm.it` on the mobile device to install the CA certificate
+
+### Target Server (InsecureBankv2)
+- If testing the `InsecureBankv2` APK, the backend automatically starts the `AndroLabServer` server
+- Configure via `TARGET_SERVER_PATH` environment variable
+
+---
+
+## Project Structure
+
+```
+auth-session-validator/
+├── backend/
+│   ├── main.py                     # FastAPI entry point
+│   ├── config.py                   # Configuration
+│   ├── static_analyzer/            # JADX-based static analysis
+│   ├── dynamic_analyzer/           # Proxy + Frida instrumentation
+│   ├── active_validator/           # Attack tests
+│   ├── correlation_engine/         # ML + scoring + AI
+│   ├── masvs/                      # MASVS compliance
+│   └── report_generator/           # PDF reports
+├── frontend/                       # Dashboard UI
+├── uploads/                        # Temporary APK storage
+├── reports/                        # Generated PDFs
+└── tools/                          # External tools (JADX, Frida)
+```
+
+---
+
+## API Endpoints
+
+### Static Analysis
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/analyze/static` | POST | Upload APK and run static analysis |
+| `/api/analyze/storage` | POST | Analyze token/sensitive data storage |
+
+### Dynamic Analysis
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/proxy/start` | POST | Start MITM proxy |
+| `/api/proxy/traffic` | GET | Get captured traffic |
+| `/api/frida/start` | POST | Start Frida instrumentation |
+
+### Token Security
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/analyze/token/lifetime` | POST | Analyze JWT lifetime |
+| `/api/analyze/token/rotation` | POST | Test refresh token rotation |
+
+### Session Attacks
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/attack/session/fixation` | POST | Test session fixation |
+| `/api/attack/session/timeout` | POST | Test session timeout |
+| `/api/attack/session/concurrent` | POST | Test concurrent sessions |
+| `/api/attack/token-replay` | POST | Test token replay after logout |
+
+### MASVS Compliance
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/masvs/generate-checklist` | POST | Generate MASVS checklist |
+| `/api/masvs/detect-auth-type` | POST | Detect auth type (JWT/OAuth2/Session) |
+| `/api/masvs/acceptance-criteria` | POST | Generate acceptance criteria |
+| `/api/masvs/checklist/export` | GET | Export checklist (Markdown/JSON) |
+
+### Reports
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/report/pdf` | GET | Generate PDF audit report |
+
+---
+
+## Default Test Credentials
+
+For InsecureBankv2: `admin` / `admin@123`
+
+---
+
+## Requirements
+
+- Python 3.8+
+- JADX (for decompilation)
+- Frida (for dynamic instrumentation)
+- Android device/emulator (for testing)
+
+See `requirements.txt` for Python dependencies.
